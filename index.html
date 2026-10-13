@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="robots" content="noindex">
+<title>Настройки листинг-бота</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-secondary-bg-color, #efeff4);
+    --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #ffffff));
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #8a8a8e);
+    --accent: var(--tg-theme-button-color, #2481cc);
+    --on-accent: var(--tg-theme-button-text-color, #ffffff);
+    --line: var(--tg-theme-section-separator-color, rgba(128, 128, 128, .22));
+    --danger: var(--tg-theme-destructive-text-color, #d9342b);
+    --field: rgba(128, 128, 128, .13);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: var(--tg-theme-secondary-bg-color, #0f0f10);
+      --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #1c1c1e));
+      --text: var(--tg-theme-text-color, #f2f2f2);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 12px 12px 28px; -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 560px; margin: 0 auto; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 4px 10px; }
+  .chip { font-size: 12px; font-weight: 600; letter-spacing: .02em; padding: 4px 9px; border-radius: 999px;
+          background: var(--field); color: var(--hint); white-space: nowrap; }
+  .chip.live { background: var(--danger); color: #fff; }
+  .asof { font-size: 12px; color: var(--hint); text-align: right; }
+  .note { font-size: 13px; color: var(--hint); padding: 0 4px 10px; }
+  .banner { background: var(--card); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; }
+  .banner b { display: block; margin-bottom: 2px; }
+  .card { background: var(--card); border-radius: 12px; margin-bottom: 14px; overflow: hidden; }
+  .head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; }
+  .head h2 { font-size: 17px; margin: 0; font-weight: 650; }
+  .head .state { font-size: 13px; color: var(--hint); margin-right: 10px; }
+  .group { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--hint);
+           padding: 12px 14px 4px; border-top: 1px solid var(--line); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 14px; min-height: 44px; }
+  .row { border-top: 1px solid var(--line); }
+  .group + .row, .head + .row, .body > .row:first-child { border-top: 0; }
+  .row label { flex: 1 1 auto; min-width: 0; }
+  .row small { display: block; color: var(--hint); font-size: 12px; line-height: 1.25; margin-top: 1px; }
+  .ctl { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+  .ctl .unit { color: var(--hint); font-size: 13px; min-width: 14px; }
+  input[type=text], select {
+    font: inherit; color: var(--text); background: var(--field); border: 1.5px solid transparent; border-radius: 8px;
+    padding: 7px 9px; outline: none; -webkit-appearance: none; appearance: none;
+  }
+  input[type=text] { width: 84px; text-align: right; font-variant-numeric: tabular-nums; }
+  select { max-width: 210px; padding-right: 24px; text-overflow: ellipsis;
+           background-image: linear-gradient(45deg, transparent 50%, var(--hint) 50%), linear-gradient(135deg, var(--hint) 50%, transparent 50%);
+           background-position: calc(100% - 13px) 50%, calc(100% - 8px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+  input[type=text]:focus, select:focus { border-color: var(--accent); }
+  input.bad { border-color: var(--danger); }
+  .err { color: var(--danger); font-size: 12px; padding: 0 14px 8px; margin-top: -3px; text-align: right; }
+  .calc { color: var(--hint); font-size: 12px; padding: 0 14px 9px; margin-top: -2px; }
+  .switch { position: relative; width: 50px; height: 30px; flex: 0 0 auto; }
+  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; width: 100%; height: 100%; cursor: pointer; z-index: 1; }
+  .switch span { position: absolute; inset: 0; border-radius: 999px; background: rgba(128, 128, 128, .35); transition: background .15s; }
+  .switch span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 26px; height: 26px; border-radius: 50%;
+                        background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .15s; }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(20px); }
+  .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .off .body { opacity: .45; }
+  .unused { opacity: .45; }
+  .btn { display: block; width: 100%; font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px;
+         background: var(--accent); color: var(--on-accent); margin-bottom: 10px; cursor: pointer; }
+  .btn.plain { background: transparent; color: var(--danger); font-weight: 500; }
+  .btn.danger { background: var(--danger); color: #fff; }
+  .btn.small { width: auto; margin: 0; padding: 8px 12px; font-size: 14px; white-space: nowrap; }
+  .btn.ghost { background: var(--field); color: var(--text); }
+  .tabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 3px; padding: 3px; margin: 0 0 12px; border-radius: 11px;
+          background: var(--bg); box-shadow: 0 0 0 100vmax var(--bg); clip-path: inset(-12px -100vmax -8px); }
+  .tabs::before { content: ""; position: absolute; inset: 0; border-radius: 11px; background: var(--field); pointer-events: none; }
+  .tab { position: relative; flex: 1 1 0; min-width: 0; font: inherit; font-size: 14px; font-weight: 600; color: var(--hint);
+         background: transparent; border: 0; border-radius: 9px; padding: 8px 4px; cursor: pointer; white-space: nowrap; }
+  .tab[aria-selected=true] { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .18); }
+  .tab .n { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 999px; font-size: 12px;
+            background: var(--accent); color: var(--on-accent); }
+  .tab.dim { opacity: .6; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; padding: 4px 14px 12px; }
+  .facts div { min-width: 0; }
+  .facts .wide { grid-column: 1 / -1; }
+  .facts small { display: block; color: var(--hint); font-size: 12px; }
+  .facts b { font-weight: 550; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .kind { font-size: 12px; font-weight: 600; color: var(--hint); margin-left: 6px; }
+  .move { font-weight: 650; font-variant-numeric: tabular-nums; }
+  .move.up { color: #2fa84f; }
+  .move.down { color: var(--danger); }
+  .acts { border-top: 1px solid var(--line); padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .acts .line { display: flex; align-items: center; gap: 8px; }
+  .acts .line input { flex: 1 1 auto; width: auto; min-width: 0; }
+  .acts .line span { color: var(--hint); font-size: 13px; flex: 0 0 auto; }
+  .standing { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .empty { text-align: center; color: var(--hint); padding: 34px 20px; }
+  .empty b { display: block; color: var(--text); font-size: 16px; margin-bottom: 4px; }
+  pre { background: var(--card); border-radius: 12px; padding: 12px; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="banner" id="problem" hidden></div>
+  <div id="app" hidden>
+    <div class="top">
+      <span class="chip" id="mode"></span>
+      <span class="asof" id="asof"></span>
+    </div>
+    <div class="banner" id="preview" hidden><b>Открыто не из Telegram</b>Отсюда боту ничего не уходит: кнопки только покажут внизу, что ушло бы.</div>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <div id="panes"></div>
+    <button class="btn" id="save" hidden>Сохранить настройки</button>
+    <pre id="out" hidden></pre>
+  </div>
+</main>
+<script>
+"use strict";
+// The order of the fields is the bot's (bot/tuning.py: COMMON_FIELDS, VENUE_FIELDS): both sides must agree.
+const VERSION = 2;
+const COMMON_FIELDS = ["max_mcap_usd"];
+const POSITION_FIELDS = ["key", "size", "entry", "mark", "tp", "sl", "limit"];
+const VENUE_FIELDS = ["enabled", "entry_mode", "leverage", "fut_margin_pct", "fut_price_cap_pct", "fut_tif", "fut_order_ttl_s",
+                      "max_notional_usd", "spot_pct", "spot_price_cap_pct", "spot_tif", "spot_order_ttl_s", "tp_pct", "sl_pct",
+                      "sl_delay_s", "max_hold_min"];
+const TITLES = {gate: "Gate", binance: "Binance"};
+const ENTRY = [["auto", "Перп, иначе spot"], ["futures", "Только перп"], ["spot", "Только spot"], ["both", "И перп, и spot"]];
+const REST = [["gtc", "стоит в стакане"], ["ioc", "снимается сразу"]];
+// what a form row is: [field, label, hint, unit, lowest, highest, whole number, may be empty, shown as value / scale]
+const COMMON_ROWS = [
+  ["max_mcap_usd", "Потолок каппы", "Токены с circulating cap выше не берём", "млн $", 1, 1000000, false, false, 1e6],
+];
+const GROUPS = [
+  ["perp", "Перп", [
+    ["leverage", "Плечо", "Cross; меньше, если контракт столько не даёт", "x", 1, 50, true, false],
+    ["fut_margin_pct", "Маржа", "Доля баланса биржи под позицию", "%", 0.1, 100, false, false],
+    ["fut_price_cap_pct", "Потолок цены", "Лимит: цена до листинга плюс столько", "%", 0.1, 50, false, false],
+    ["fut_tif", "Что не налилось сразу", "", REST],
+    ["fut_order_ttl_s", "Сколько стоит в стакане", "", "с", 0, 60, false, false],
+    ["max_notional_usd", "Макс. позиция", "0 — без своего ограничения", "$", 0, 10000000, false, false],
+  ]],
+  ["spot", "Spot", [
+    ["spot_pct", "Доля баланса", "Пусто — через spot не входить", "%", 0.1, 100, false, true],
+    ["spot_price_cap_pct", "Потолок цены", "Лимит: цена до листинга плюс столько", "%", 0.1, 50, false, false],
+    ["spot_tif", "Что не налилось сразу", "", [REST[1], REST[0]]],
+    ["spot_order_ttl_s", "Сколько стоит в стакане", "", "с", 0, 60, false, false],
+  ]],
+  ["exit", "Выход", [
+    ["tp_pct", "Take-profit", "От средней цены входа", "%", 0.1, 1000, false, true],
+    ["sl_pct", "Stop-loss", "От средней цены входа", "%", 0.1, 99, false, true],
+    ["sl_delay_s", "SL ставится через", "После первого fill; до этого стопа нет", "с", 0, 600, false, false],
+    ["max_hold_min", "Держать не дольше", "0 — без ограничения", "мин", 0, 10080, false, false],
+  ]],
+];
+
+const tg = window.Telegram && window.Telegram.WebApp;
+const inTelegram = !!tg && tg.platform && tg.platform !== "unknown";
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const inputs = {};  // "gate.leverage" | "common.max_mcap_usd" -> {get(), check(), node}
+let dirty = false;
+
+function fail(title, text) {
+  $("app").hidden = true;
+  const p = $("problem");
+  p.hidden = false;
+  p.replaceChildren(el("b", null, title), document.createTextNode(text));
+  if (inTelegram) tg.MainButton.hide();
+}
+
+function readState() {
+  const packed = new URLSearchParams(location.search).get("c");
+  if (!packed) return null;
+  const b64 = packed.replace(/-/g, "+").replace(/_/g, "/");
+  const bytes = Uint8Array.from(atob(b64 + "=".repeat((4 - b64.length % 4) % 4)), (ch) => ch.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function touched() {
+  if (dirty) return;
+  dirty = true;
+  if (inTelegram && tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+}
+
+function numberRow(key, [name, label, hint, unit, lo, hi, whole, optional, scale], value, onChange) {
+  const row = el("div", "row"), lab = el("label", null, label), ctl = el("div", "ctl"), inp = el("input");
+  if (hint) lab.append(el("small", null, hint));
+  inp.type = "text"; inp.inputMode = whole ? "numeric" : "decimal"; inp.autocomplete = "off";
+  inp.id = key; lab.htmlFor = key;
+  inp.value = value == null ? "" : String(+(value / (scale || 1)).toFixed(6));
+  inp.placeholder = optional ? "—" : "";
+  ctl.append(inp, el("span", "unit", unit));
+  row.append(lab, ctl);
+  const err = el("div", "err"); err.hidden = true;
+  const parse = () => {
+    const raw = inp.value.trim().replace(",", ".").replace(/\s+/g, "");
+    if (raw === "") return optional ? [null, null] : [null, "нужно число"];
+    const x = Number(raw);
+    if (!isFinite(x)) return [null, "нужно число"];
+    if (whole && !Number.isInteger(x)) return [null, "нужно целое число"];
+    if (x < lo || x > hi) return [null, `от ${lo} до ${hi}`];
+    return [x * (scale || 1), null];
+  };
+  const check = () => { const [, why] = parse(); inp.classList.toggle("bad", !!why); err.hidden = !why; err.textContent = why ? `${label}: ${why}` : ""; return why; };
+  inp.addEventListener("input", () => { touched(); check(); if (onChange) onChange(); });
+  inputs[key] = {get: () => parse()[0], check, node: inp, label};
+  return [row, err];
+}
+
+function selectRow(key, [name, label, hint, options], value, onChange) {
+  const row = el("div", "row"), lab = el("label", null, label), sel = el("select");
+  if (hint) lab.append(el("small", null, hint));
+  sel.id = key; lab.htmlFor = key;
+  for (const [v, text] of options) { const o = el("option", null, text); o.value = v; sel.append(o); }
+  sel.value = value;
+  sel.addEventListener("change", () => { touched(); if (onChange) onChange(); });
+  row.append(lab, sel);
+  inputs[key] = {get: () => sel.value, check: () => null, node: sel, label};
+  return [row];
+}
+
+function venueCard(venue, values) {
+  const at = Object.fromEntries(VENUE_FIELDS.map((f, i) => [f, values[i]]));
+  const card = el("section", "card"), head = el("div", "head"), body = el("div", "body");
+  const state = el("span", "state"), sw = el("label", "switch"), box = el("input");
+  box.type = "checkbox"; box.checked = !!at.enabled; box.setAttribute("aria-label", `Торговать на ${TITLES[venue] || venue}`);
+  sw.append(box, el("span"));
+  const right = el("div", "ctl"); right.append(state, sw);
+  head.append(el("h2", null, TITLES[venue] || venue), right);
+  inputs[`${venue}.enabled`] = {get: () => box.checked, check: () => null, node: box, label: "торговать"};
+  const sections = {}, calc = el("div", "calc");
+  const refresh = () => {
+    card.classList.toggle("off", !box.checked);
+    state.textContent = box.checked ? "торгуем" : "выключена";
+    const mode = inputs[`${venue}.entry_mode`].get();
+    sections.perp.forEach((n) => n.classList.toggle("unused", mode === "spot"));
+    sections.spot.forEach((n) => n.classList.toggle("unused", mode === "futures"));
+    const lev = inputs[`${venue}.leverage`].get(), margin = inputs[`${venue}.fut_margin_pct`].get();
+    calc.textContent = lev && margin ? `Позиция до ${+(lev * margin / 100).toFixed(2)}× баланса — если хватит потолка биржи на этом плече` : "";
+  };
+  box.addEventListener("change", () => { touched(); refresh(); });
+  body.append(...selectRow(`${venue}.entry_mode`, ["entry_mode", "Вход", "", ENTRY], at.entry_mode, refresh));
+  for (const [id, title, rows] of GROUPS) {
+    const nodes = [el("div", "group", title)];
+    for (const r of rows) {
+      const made = Array.isArray(r[3]) ? selectRow(`${venue}.${r[0]}`, r, at[r[0]], refresh) : numberRow(`${venue}.${r[0]}`, r, at[r[0]], refresh);
+      nodes.push(...made);
+      if (r[0] === "fut_margin_pct") nodes.push(calc);
+    }
+    sections[id] = nodes;
+    body.append(...nodes);
+  }
+  card.append(head, body);
+  refresh();
+  return card;
+}
+
+function commonPane(values) {
+  const pane = el("div"), card = el("section", "card"), head = el("div", "head");
+  head.append(el("h2", null, "Для обеих бирж"));
+  card.append(head);
+  COMMON_ROWS.forEach((r, i) => card.append(...numberRow(`common.${r[0]}`, r, values[i])));
+  const reset = el("button", "btn plain", "Сбросить все настройки к .env");
+  reset.type = "button";
+  reset.addEventListener("click", () => ask("Забыть всё, что менялось здесь, и вернуться к настройкам из .env?", () => send({v: VERSION, reset: true})));
+  pane.append(card, el("p", "note", "После «Сохранить» бот покажет в чате, что изменится, и применит это только после кнопки «Подтвердить» там же. У уже открытой позиции TP и SL остаются прежними. Ключи бирж и режим DRY_RUN меняются только в .env на сервере."), reset);
+  return pane;
+}
+
+function ask(text, go) {
+  if (inTelegram && tg.showConfirm) tg.showConfirm(text, (yes) => { if (yes) go(); });
+  else if (confirm(text)) go();
+}
+
+function tell(text) {
+  if (inTelegram && tg.showAlert) tg.showAlert(text); else alert(text);
+}
+
+function fact(label, value) {
+  const d = el("div");
+  d.append(el("small", null, label), el("b", null, value == null || value === "" ? "—" : String(value)));
+  return d;
+}
+
+function positionCard(values, at) {
+  const p = Object.fromEntries(POSITION_FIELDS.map((f, i) => [f, values[i]]));
+  const [venue, name, spot] = p.key.split(":");
+  const title = `${TITLES[venue] || venue} ${name}`;
+  const base = name.replace(/_?USDT$/, "");
+  const size = p.size == null ? null : spot ? `${p.size} ${base}` : venue === "gate" ? `${p.size} контр.` : `${p.size} ${base}`;
+  const card = el("section", "card"), head = el("div", "head"), h = el("h2", null, title);
+  h.append(el("span", "kind", spot ? "spot" : "перп"));
+  const entry = Number(p.entry), mark = Number(p.mark);
+  const move = el("span", "move");
+  if (entry > 0 && mark > 0) {
+    const pct = (mark / entry - 1) * 100;
+    move.textContent = `${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%`;
+    move.classList.add(pct >= 0 ? "up" : "down");
+  }
+  head.append(h, move);
+  const facts = el("div", "facts");
+  const last = fact(`${spot ? "Bid" : "Цена"} на ${at}`, p.mark);
+  last.className = "wide";
+  facts.append(fact("Размер", size), fact("Вход", p.entry), fact(spot ? "TP (ведёт бот)" : "TP", p.tp),
+               fact("SL", p.sl == null && !spot ? "ещё не стоит" : p.sl), last);
+  const acts = el("div", "acts");
+  const warn = () => dirty ? "\n\nНесохранённые изменения настроек пропадут." : "";
+  if (p.limit != null) {
+    const row = el("div", "standing"), off = el("button", "btn small ghost", "Снять");
+    off.type = "button";
+    off.addEventListener("click", () => ask(`Снять лимитку на закрытие ${title} по ${p.limit}?${warn()}`, () => send({v: VERSION, a: "cancel", k: p.key})));
+    row.append(el("span", null, `Стоит лимитка на закрытие по ${p.limit}`), off);
+    acts.append(row);
+  }
+  const line = el("div", "line"), price = el("input"), put = el("button", "btn small", p.limit != null ? "Переставить" : "Закрыть лимиткой");
+  price.type = "text"; price.inputMode = "decimal"; price.autocomplete = "off"; price.value = p.limit != null ? p.limit : (p.mark || "");
+  price.setAttribute("aria-label", `Цена лимитки для ${title}`);
+  put.type = "button";
+  put.addEventListener("click", () => {
+    const raw = price.value.trim().replace(",", ".").replace(/\s+/g, ""), x = Number(raw);
+    price.classList.toggle("bad", !(raw !== "" && isFinite(x) && x > 0));
+    if (!(raw !== "" && isFinite(x) && x > 0)) return tell("Впиши цену лимитки: число больше нуля.");
+    const far = mark > 0 && x < mark ? "\n\nЦена ниже текущей: ордер исполнится сразу, как рыночный." : "";
+    const stop = spot ? "\n\nНа spot биржевой SL при этом снимается: стопом будет сам бот, пока он запущен." : "\n\nSL и TP остаются.";
+    ask(`Поставить лимитку на закрытие ${title} по ${raw}?${far}${stop}${warn()}`, () => send({v: VERSION, a: "close", k: p.key, how: "limit", p: raw}));
+  });
+  line.append(el("span", null, "Цена"), price, put);
+  const now = el("button", "btn danger", "Закрыть по рынку");
+  now.type = "button"; now.style.margin = "0";
+  now.addEventListener("click", () => ask(`Закрыть ${title} по рынку прямо сейчас?${warn()}`, () => send({v: VERSION, a: "close", k: p.key, how: "market"})));
+  acts.append(line, now);
+  card.append(head, facts, acts);
+  return card;
+}
+
+function ordersPane(positions, when) {
+  const pane = el("div");
+  const at = when.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+  if (!positions.length) {
+    const empty = el("div", "empty");
+    empty.append(el("b", null, "Открытых позиций нет"), document.createTextNode("Здесь появится всё, что бот купил на листинге: перпы и spot. Отсюда позицию можно закрыть по рынку или лимиткой по своей цене."));
+    pane.append(empty);
+  }
+  for (const values of positions) pane.append(positionCard(values, at));
+  pane.append(el("p", "note", `Позиции и цены — на ${at}, когда бот в последний раз писал в чат. Чтобы обновить, закрой приложение, нажми «Статус» и открой снова. После любой команды приложение закрывается, а бот отвечает в чате.`));
+  return pane;
+}
+
+function collect(state) {
+  for (const [key, inp] of Object.entries(inputs)) {
+    const why = inp.check();
+    if (why) return {bad: inp, tab: key.split(".")[0], text: `${key.startsWith("common") ? "Общее" : TITLES[key.split(".")[0]]}: ${inp.label} — ${why}`};
+  }
+  return {message: {v: VERSION, c: COMMON_FIELDS.map((f) => inputs[`common.${f}`].get()),
+                    e: Object.fromEntries(Object.keys(state.e).map((v) => [v, VENUE_FIELDS.map((f) => inputs[`${v}.${f}`].get())]))}};
+}
+
+function send(message) {
+  const text = JSON.stringify(message);
+  if (!inTelegram) { const out = $("out"); out.hidden = false; out.textContent = text; out.scrollIntoView({block: "end"}); return; }
+  if (tg.disableClosingConfirmation) tg.disableClosingConfirmation();
+  tg.sendData(text);  // Telegram hands it to the bot as a message and closes the app
+}
+
+function start() {
+  if (tg) { tg.ready(); tg.expand(); }
+  let state;
+  try { state = readState(); } catch (e) { return fail("Адрес повреждён", "Открой настройки заново кнопкой «⚙️ Настройки» в боте."); }
+  if (!state) return fail("Нет данных", "Эта страница открывается кнопкой «⚙️ Настройки» в чате с ботом: бот передаёт ей текущие значения.");
+  if (state.v !== VERSION || !Array.isArray(state.c) || state.c.length !== COMMON_FIELDS.length || !Array.isArray(state.p) ||
+      Object.values(state.e || {}).some((x) => !Array.isArray(x) || x.length !== VENUE_FIELDS.length) ||
+      state.p.some((x) => !Array.isArray(x) || x.length !== POSITION_FIELDS.length))
+    return fail("Страница и бот разных версий", "Обнови страницу на хостинге до версии из папки miniapp бота.");
+  $("app").hidden = false;
+  $("preview").hidden = inTelegram;
+  const mode = $("mode");
+  mode.textContent = state.live ? "LIVE — торговля по-настоящему" : "DRY RUN — ордера не отправляются";
+  mode.classList.toggle("live", !!state.live);
+  const when = new Date(state.t * 1000);
+  $("asof").textContent = `на ${when.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}, ${when.toLocaleDateString([], {day: "numeric", month: "short"})}`;
+
+  // one tab per exchange, one for what is common to them, one for the open positions
+  const tabs = [];
+  for (const [venue, values] of Object.entries(state.e)) {
+    const pane = el("div");
+    pane.append(venueCard(venue, values));
+    tabs.push({id: venue, title: TITLES[venue] || venue, pane, settings: true});
+  }
+  tabs.push({id: "common", title: "Общее", pane: commonPane(state.c), settings: true});
+  tabs.push({id: "orders", title: "Ордера", pane: ordersPane(state.p, when), settings: false, count: state.p.length});
+  const nav = $("tabs"), panes = $("panes");
+  let current = null;
+  const save = () => {
+    const got = collect(state);
+    if (got.bad) {
+      show(got.tab);
+      got.bad.node.scrollIntoView({block: "center", behavior: "smooth"});
+      return tell(got.text);
+    }
+    send(got.message);
+  };
+  const show = (id) => {
+    current = tabs.find((x) => x.id === id) || tabs[0];
+    for (const x of tabs) {
+      x.pane.hidden = x !== current;
+      x.button.setAttribute("aria-selected", String(x === current));
+    }
+    if (inTelegram) { if (current.settings) tg.MainButton.show(); else tg.MainButton.hide(); }
+    else $("save").hidden = !current.settings;
+    window.scrollTo(0, 0);
+  };
+  for (const x of tabs) {
+    x.button = el("button", "tab", x.title);
+    x.button.type = "button"; x.button.setAttribute("role", "tab");
+    if (x.count) x.button.append(el("span", "n", x.count));
+    if (state.e[x.id] && !state.e[x.id][0]) x.button.classList.add("dim");  // an exchange that is switched off
+    x.button.addEventListener("click", () => show(x.id));
+    nav.append(x.button);
+    panes.append(x.pane);
+  }
+  for (const venue of Object.keys(state.e))  // the tab of an exchange dims as soon as it is switched off
+    inputs[`${venue}.enabled`].node.addEventListener("change", (e) => tabs.find((x) => x.id === venue).button.classList.toggle("dim", !e.target.checked));
+  if (inTelegram) { tg.MainButton.setText("Сохранить настройки"); tg.MainButton.onClick(save); }
+  else $("save").addEventListener("click", save);
+  show(state.p.length ? "orders" : tabs[0].id);
+}
+start();
+</script>
+</body>
+</html>
