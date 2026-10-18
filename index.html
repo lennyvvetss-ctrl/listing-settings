@@ -72,7 +72,7 @@
   .row label, .row .label { flex: 1 1 auto; min-width: 0; font-size: 14px; }
   .row small { display: block; color: var(--hint); font-size: 11.5px; line-height: 1.3; margin-top: 1px; }
   .ctl { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
-  .ctl .unit { color: var(--hint); font-size: 12px; width: 28px; }  /* one width: the fields stand in one column */
+  .ctl .unit { color: var(--hint); font-size: 12px; min-width: 28px; white-space: nowrap; }  /* the fields stand in one column */
   .calc { color: var(--hint); font-size: 11.5px; padding: 0 14px 8px; margin-top: -4px; }
   .err { color: var(--danger); font-size: 11.5px; padding: 0 14px 8px; margin-top: -4px; text-align: right; }
   .off .body, .unused { opacity: .42; }
@@ -92,6 +92,17 @@
   .seg button { border: 0; background: transparent; color: var(--hint); font-size: 12px; font-weight: 600;
                 padding: 5px 10px; border-radius: 7px; min-width: 44px; }
   .seg button[aria-pressed=true] { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
+
+  /* one button that flips between two values, the size of a field */
+  .flip { width: 74px; font-size: 13px; font-weight: 650; letter-spacing: .04em; color: var(--text); background: var(--field);
+          border: 1.5px solid transparent; border-radius: 8px; padding: 5px 8px; text-align: center; }
+  .flip:active { border-color: var(--accent); }
+
+  /* the sub-tabs of an exchange */
+  .sub { display: flex; gap: 2px; padding: 2px; margin: 0 14px 4px; border-radius: 9px; background: var(--field); }
+  .sub button { flex: 1 1 0; border: 0; background: transparent; color: var(--hint); font-size: 12.5px; font-weight: 600;
+                padding: 5px 0; border-radius: 7px; }
+  .sub button[aria-selected=true] { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
 
   /* switch */
   .switch { position: relative; width: 42px; height: 25px; flex: 0 0 auto; }
@@ -174,8 +185,9 @@ const COMMON_ROWS = [
   ["max_mcap_usd", "Потолок каппы", "Circulating cap выше — не входим", "млн $", 1, 1000000, false, false, 1e6],
 ];
 const CAP_HINT = {binance: "Не выше края коридора Binance"};
+// a group: [id, title, the sub-tab it is on, rows]
 const GROUPS = [
-  ["perp", "Перп", [
+  ["perp", "Перп", "open", [
     ["leverage", "Плечо", "Cross; или максимум контракта", "x", 1, 50, true, false],
     ["fut_margin_pct", "Маржа", "Доля баланса биржи", "%", 0.1, 100, false, false],
     ["fut_price_cap_pct", "Потолок цены", "К цене до листинга", "%", 0.1, 50, false, false],
@@ -183,13 +195,13 @@ const GROUPS = [
     ["fut_order_ttl_s", "Ждёт в стакане", "", "с", 0, 60, false, false],
     ["max_notional_usd", "Макс. позиция", "0 — без ограничения", "$", 0, 10000000, false, false],
   ]],
-  ["spot", "Spot", [
+  ["spot", "Spot", "open", [
     ["spot_pct", "Доля баланса", "Пусто — spot не используем", "%", 0.1, 100, false, true],
     ["spot_price_cap_pct", "Потолок цены", "К цене до листинга", "%", 0.1, 50, false, false],
     ["spot_tif", "Остаток ордера", "", TIF],
     ["spot_order_ttl_s", "Ждёт в стакане", "", "с", 0, 60, false, false],
   ]],
-  ["exit", "Выход", [
+  ["exit", "Выход", "close", [
     ["tp_pct", "Take-profit", "От средней цены входа", "%", 0.1, 1000, false, true],
     ["sl_pct", "Stop-loss", "От средней цены входа", "%", 0.1, 99, false, true],
     ["sl_delay_s", "SL через", "После первого налива", "с", 0, 600, false, false],
@@ -275,9 +287,29 @@ function choiceRow(key, [name, label, hint, options], value, onChange) {
   return wide ? [row, what] : [row];
 }
 
+function flipRow(key, [name, label, hint, options], value, onChange) {
+  // two values on one button the size of a field: a tap gives the other; the line under the label says what it means
+  const row = el("div", "row"), lab = el("label", null, label), what = el("small"), ctl = el("div", "ctl"), b = el("button", "flip");
+  b.type = "button"; b.id = key; lab.htmlFor = key;
+  lab.append(what);
+  let i = Math.max(0, options.findIndex(([v]) => v === value));
+  const paint = () => {
+    const [, text, means] = options[i];
+    b.textContent = text; what.textContent = hint || means;
+    b.setAttribute("aria-label", `${label}: ${text}. Нажми, чтобы сменить`);
+  };
+  b.addEventListener("click", () => { i = (i + 1) % options.length; touched(); paint(); if (onChange) onChange(); });
+  paint();
+  ctl.append(b, el("span", "unit"));  // an empty unit: the button stands where the fields stand
+  row.append(lab, ctl);
+  inputs[key] = {get: () => options[i][0], check: () => null, node: b, label};
+  return [row];
+}
+
 function venueCard(venue, values) {
   const at = Object.fromEntries(VENUE_FIELDS.map((f, i) => [f, values[i]]));
-  const card = el("section", "card"), head = el("div", "head"), body = el("div", "body");
+  const card = el("section", "card"), head = el("div", "head");
+  const bodies = {open: el("div", "body"), close: el("div", "body")};
   const state = el("span", "state"), sw = el("label", "switch"), box = el("input");
   box.type = "checkbox"; box.checked = !!at.enabled; box.setAttribute("aria-label", `Торговать на ${TITLES[venue] || venue}`);
   sw.append(box, el("span"));
@@ -299,20 +331,35 @@ function venueCard(venue, values) {
     calc.textContent = lev && margin ? `Позиция до ${+(lev * margin / 100).toFixed(2)}× баланса, в пределах лимита биржи` : "";
   };
   box.addEventListener("change", () => { touched(); refresh(); });
-  body.append(...choiceRow(`${venue}.entry_mode`, ["entry_mode", "Вход", "", ENTRY], at.entry_mode, refresh));
-  for (const [id, title, list] of GROUPS) {
+  bodies.open.append(...choiceRow(`${venue}.entry_mode`, ["entry_mode", "Вход", "", ENTRY], at.entry_mode, refresh));
+  inputs[`${venue}.entry_mode`].sub = "open";
+  for (const [id, title, where, list] of GROUPS) {
     const nodes = [el("div", "group", title)];
     for (const r of list) {
       const spec = r[0] === "fut_price_cap_pct" && CAP_HINT[venue] ? [r[0], r[1], CAP_HINT[venue], ...r.slice(3)] : r;
-      const made = Array.isArray(r[3]) ? choiceRow(`${venue}.${r[0]}`, spec, at[r[0]], refresh) : numberRow(`${venue}.${r[0]}`, spec, at[r[0]], refresh);
+      const made = Array.isArray(r[3]) ? flipRow(`${venue}.${r[0]}`, spec, at[r[0]], refresh) : numberRow(`${venue}.${r[0]}`, spec, at[r[0]], refresh);
+      inputs[`${venue}.${r[0]}`].sub = where;
       rows[r[0]] = made;
       nodes.push(...made);
       if (r[0] === "fut_margin_pct") nodes.push(calc);
     }
     sections[id] = nodes;
-    body.append(...nodes);
+    bodies[where].append(...nodes);
   }
-  card.append(head, body);
+  // Open: how it enters; Close: how it gets out. One at a time
+  const subs = el("div", "sub"), pick = {};
+  subs.setAttribute("role", "tablist");
+  for (const [id, title] of [["open", "Open"], ["close", "Close"]]) {
+    pick[id] = el("button", null, title);
+    pick[id].type = "button"; pick[id].setAttribute("role", "tab");
+    pick[id].addEventListener("click", () => card.showSub(id));
+    subs.append(pick[id]);
+  }
+  card.showSub = (id) => {
+    for (const k of Object.keys(bodies)) { bodies[k].hidden = k !== id; pick[k].setAttribute("aria-selected", String(k === id)); }
+  };
+  card.append(head, subs, bodies.open, bodies.close);
+  card.showSub("open");
   refresh();
   return card;
 }
@@ -420,7 +467,7 @@ function ordersPane(positions, when) {
 function collect(state) {
   for (const [key, inp] of Object.entries(inputs)) {
     const why = inp.check();
-    if (why) return {bad: inp, tab: key.split(".")[0], text: `${key.startsWith("common") ? "Общее" : TITLES[key.split(".")[0]]}: ${inp.label} — ${why}`};
+    if (why) return {bad: inp, tab: key.split(".")[0], sub: inp.sub, text: `${key.startsWith("common") ? "Общее" : TITLES[key.split(".")[0]]}: ${inp.label} — ${why}`};
   }
   return {message: {v: VERSION, c: COMMON_FIELDS.map((f) => inputs[`common.${f}`].get()),
                     e: Object.fromEntries(Object.keys(state.e).map((v) => [v, VENUE_FIELDS.map((f) => inputs[`${v}.${f}`].get())]))}};
@@ -451,10 +498,11 @@ function start() {
   $("asof").textContent = `${when.toLocaleDateString([], {day: "numeric", month: "short"})}, ${when.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`;
 
   // a tab per exchange (also one the bot runs without now), one for what is common, one for the positions
-  const tabs = [];
+  const tabs = [], cards = {};
   for (const venue of [...new Set([...Object.keys(TITLES), ...Object.keys(state.e)])]) {
     const pane = el("div"), here = !!state.e[venue];
-    pane.append(here ? venueCard(venue, state.e[venue]) : awayCard(venue));
+    if (here) cards[venue] = venueCard(venue, state.e[venue]);
+    pane.append(here ? cards[venue] : awayCard(venue));
     tabs.push({id: venue, title: TITLES[venue] || venue, pane, settings: here, away: !here});
   }
   tabs.push({id: "common", title: "Общее", pane: commonPane(state.c), settings: true});
@@ -465,6 +513,8 @@ function start() {
     const got = collect(state);
     if (got.bad) {
       show(got.tab);
+      const card = got.sub && cards[got.tab];
+      if (card) card.showSub(got.sub);
       got.bad.node.scrollIntoView({block: "center", behavior: "smooth"});
       return tell(got.text);
     }
