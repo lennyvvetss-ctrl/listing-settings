@@ -169,8 +169,8 @@
 <script>
 "use strict";
 // The order of the fields is the bot's (bot/tuning.py: COMMON_FIELDS, VENUE_FIELDS): both sides must agree.
-const VERSION = 4;
-const COMMON_FIELDS = ["max_mcap_usd", "fill_check_s", "fill_min_pct"];
+const VERSION = 5;
+const COMMON_FIELDS = ["max_mcap_usd", "fill_check_s"];
 const POSITION_FIELDS = ["key", "size", "entry", "mark", "tp", "sl", "limit"];
 const VENUE_FIELDS = ["enabled", "entry_mode", "leverage", "fut_margin_pct", "fut_price_cap_pct", "fut_tif", "fut_order_ttl_s",
                       "fut_chase_pct", "max_notional_usd", "spot_pct", "spot_price_cap_pct", "spot_tif", "spot_order_ttl_s",
@@ -185,8 +185,7 @@ const TIF = [["gtc", "GTC", "ждёт в стакане, потом снимае
 // a number: [field, label, hint, unit, lowest, highest, whole number, may be empty, shown as value / scale]
 const COMMON_ROWS = [
   ["max_mcap_usd", "Потолок каппы", "Circulating cap выше — не входим", "млн $", 1, 1000000, false, false, 1e6],
-  ["fill_check_s", "Проверка налива через", "Пусто — без проверки", "с", 0.1, 60, false, true],
-  ["fill_min_pct", "Бросить, если налито меньше", "От плана; остаток снимается", "%", 1, 100, false, false],
+  ["fill_check_s", "Снять недолитое через", "Остаток снимается; пусто — нет", "с", 0.1, 60, false, true],
 ];
 const CAP_HINT = {binance: "Не выше края коридора Binance"};
 // a group: [id, title, the sub-tab it is on, rows]
