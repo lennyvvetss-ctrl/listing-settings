@@ -169,12 +169,13 @@
 <script>
 "use strict";
 // The order of the fields is the bot's (bot/tuning.py: COMMON_FIELDS, VENUE_FIELDS): both sides must agree.
-const VERSION = 5;
+const VERSION = 6;
 const COMMON_FIELDS = ["max_mcap_usd", "fill_check_s"];
 const POSITION_FIELDS = ["key", "size", "entry", "mark", "tp", "sl", "limit"];
 const VENUE_FIELDS = ["enabled", "entry_mode", "leverage", "fut_margin_pct", "fut_price_cap_pct", "fut_tif", "fut_order_ttl_s",
                       "fut_chase_pct", "max_notional_usd", "spot_pct", "spot_price_cap_pct", "spot_tif", "spot_order_ttl_s",
-                      "spot_chase_pct", "tp_pct", "sl_pct", "sl_delay_s", "max_hold_min"];
+                      "spot_chase_pct", "tp_pct", "tp_pct_10m", "tp_pct_30m", "tp_pct_90m", "tp_pct_120m", "sl_pct", "sl_delay_s",
+                      "max_hold_min"];
 // a row shown on these exchanges only; elsewhere its value goes back as it came
 const ONLY = {spot_chase_pct: ["binance"]};
 const TITLES = {gate: "Gate", binance: "Binance"};
@@ -188,7 +189,7 @@ const COMMON_ROWS = [
   ["fill_check_s", "Снять недолитое через", "Остаток снимается; пусто — нет", "с", 0.1, 60, false, true],
 ];
 const CAP_HINT = {binance: "Не выше края коридора Binance"};
-// a group: [id, title, the sub-tab it is on, rows]
+// a group: [id, title, the sub-tab it is on, rows, a line under the title]
 const GROUPS = [
   ["perp", "Перп", "open", [
     ["leverage", "Плечо", "Cross; или максимум контракта", "x", 1, 50, true, false],
@@ -212,6 +213,12 @@ const GROUPS = [
     ["sl_delay_s", "SL через", "После первого налива", "с", 0, 600, false, false],
     ["max_hold_min", "Держать не дольше", "0 — без ограничения", "мин", 0, 10080, false, false],
   ]],
+  ["tpcap", "Take-profit по каппе", "tpcap", [
+    ["tp_pct_10m", "Каппа до $10M", "Пусто — общий TP", "%", 0.1, 1000, false, true],
+    ["tp_pct_30m", "Каппа $10–30M", "Пусто — общий TP", "%", 0.1, 1000, false, true],
+    ["tp_pct_90m", "Каппа $30–90M", "Пусто — общий TP", "%", 0.1, 1000, false, true],
+    ["tp_pct_120m", "Каппа $90–120M", "Пусто — общий TP", "%", 0.1, 1000, false, true],
+  ], "От средней цены входа, по каппе монеты в момент входа. Выше $120M — общий TP из Close."],
 ];
 
 const tg = window.Telegram && window.Telegram.WebApp;
@@ -314,7 +321,7 @@ function flipRow(key, [name, label, hint, options], value, onChange) {
 function venueCard(venue, values) {
   const at = Object.fromEntries(VENUE_FIELDS.map((f, i) => [f, values[i]]));
   const card = el("section", "card"), head = el("div", "head");
-  const bodies = {open: el("div", "body"), close: el("div", "body")};
+  const bodies = {open: el("div", "body"), close: el("div", "body"), tpcap: el("div", "body")};
   const state = el("span", "state"), sw = el("label", "switch"), box = el("input");
   box.type = "checkbox"; box.checked = !!at.enabled; box.setAttribute("aria-label", `Торговать на ${TITLES[venue] || venue}`);
   sw.append(box, el("span"));
@@ -338,8 +345,9 @@ function venueCard(venue, values) {
   box.addEventListener("change", () => { touched(); refresh(); });
   bodies.open.append(...choiceRow(`${venue}.entry_mode`, ["entry_mode", "Вход", "", ENTRY], at.entry_mode, refresh));
   inputs[`${venue}.entry_mode`].sub = "open";
-  for (const [id, title, where, list] of GROUPS) {
+  for (const [id, title, where, list, note] of GROUPS) {
     const nodes = [el("div", "group", title)];
+    if (note) nodes.push(el("div", "calc", note));
     for (const r of list) {
       if (ONLY[r[0]] && !ONLY[r[0]].includes(venue)) {  // not on this exchange: its value goes back untouched
         inputs[`${venue}.${r[0]}`] = {get: () => at[r[0]] == null ? null : at[r[0]], check: () => null, node: null, label: r[1]};
@@ -355,10 +363,10 @@ function venueCard(venue, values) {
     sections[id] = nodes;
     bodies[where].append(...nodes);
   }
-  // Open: how it enters; Close: how it gets out. One at a time
+  // Open: how it enters; Close: how it gets out; TP по каппе: the take-profit by the token's market cap. One at a time
   const subs = el("div", "sub"), pick = {};
   subs.setAttribute("role", "tablist");
-  for (const [id, title] of [["open", "Open"], ["close", "Close"]]) {
+  for (const [id, title] of [["open", "Open"], ["close", "Close"], ["tpcap", "TP по каппе"]]) {
     pick[id] = el("button", null, title);
     pick[id].type = "button"; pick[id].setAttribute("role", "tab");
     pick[id].addEventListener("click", () => card.showSub(id));
@@ -367,7 +375,7 @@ function venueCard(venue, values) {
   card.showSub = (id) => {
     for (const k of Object.keys(bodies)) { bodies[k].hidden = k !== id; pick[k].setAttribute("aria-selected", String(k === id)); }
   };
-  card.append(head, subs, bodies.open, bodies.close);
+  card.append(head, subs, bodies.open, bodies.close, bodies.tpcap);
   card.showSub("open");
   refresh();
   return card;
