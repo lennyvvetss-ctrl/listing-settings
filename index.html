@@ -169,12 +169,14 @@
 <script>
 "use strict";
 // The order of the fields is the bot's (bot/tuning.py: COMMON_FIELDS, VENUE_FIELDS): both sides must agree.
-const VERSION = 2;
-const COMMON_FIELDS = ["max_mcap_usd"];
+const VERSION = 4;
+const COMMON_FIELDS = ["max_mcap_usd", "fill_check_s", "fill_min_pct"];
 const POSITION_FIELDS = ["key", "size", "entry", "mark", "tp", "sl", "limit"];
 const VENUE_FIELDS = ["enabled", "entry_mode", "leverage", "fut_margin_pct", "fut_price_cap_pct", "fut_tif", "fut_order_ttl_s",
-                      "max_notional_usd", "spot_pct", "spot_price_cap_pct", "spot_tif", "spot_order_ttl_s", "tp_pct", "sl_pct",
-                      "sl_delay_s", "max_hold_min"];
+                      "fut_chase_pct", "max_notional_usd", "spot_pct", "spot_price_cap_pct", "spot_tif", "spot_order_ttl_s",
+                      "spot_chase_pct", "tp_pct", "sl_pct", "sl_delay_s", "max_hold_min"];
+// a row shown on these exchanges only; elsewhere its value goes back as it came
+const ONLY = {spot_chase_pct: ["binance"]};
 const TITLES = {gate: "Gate", binance: "Binance"};
 // a choice: [value, button, what it means]
 const ENTRY = [["auto", "Авто", "Авто: перп, а если его нет — spot"], ["futures", "Перп", "Только перп"],
@@ -183,6 +185,8 @@ const TIF = [["gtc", "GTC", "ждёт в стакане, потом снимае
 // a number: [field, label, hint, unit, lowest, highest, whole number, may be empty, shown as value / scale]
 const COMMON_ROWS = [
   ["max_mcap_usd", "Потолок каппы", "Circulating cap выше — не входим", "млн $", 1, 1000000, false, false, 1e6],
+  ["fill_check_s", "Проверка налива через", "Пусто — без проверки", "с", 0.1, 60, false, true],
+  ["fill_min_pct", "Бросить, если налито меньше", "От плана; остаток снимается", "%", 1, 100, false, false],
 ];
 const CAP_HINT = {binance: "Не выше края коридора Binance"};
 // a group: [id, title, the sub-tab it is on, rows]
@@ -193,6 +197,7 @@ const GROUPS = [
     ["fut_price_cap_pct", "Потолок цены", "К цене до листинга", "%", 0.1, 50, false, false],
     ["fut_tif", "Остаток ордера", "", TIF],
     ["fut_order_ttl_s", "Ждёт в стакане", "", "с", 0, 60, false, false],
+    ["fut_chase_pct", "Догонять до", "К цене до листинга; пусто — нет", "%", 0.1, 300, false, true],
     ["max_notional_usd", "Макс. позиция", "0 — без ограничения", "$", 0, 10000000, false, false],
   ]],
   ["spot", "Spot", "open", [
@@ -200,6 +205,7 @@ const GROUPS = [
     ["spot_price_cap_pct", "Потолок цены", "К цене до листинга", "%", 0.1, 50, false, false],
     ["spot_tif", "Остаток ордера", "", TIF],
     ["spot_order_ttl_s", "Ждёт в стакане", "", "с", 0, 60, false, false],
+    ["spot_chase_pct", "Догонять до", "К цене до листинга; пусто — нет", "%", 0.1, 300, false, true],
   ]],
   ["exit", "Выход", "close", [
     ["tp_pct", "Take-profit", "От средней цены входа", "%", 0.1, 1000, false, true],
@@ -323,9 +329,9 @@ function venueCard(venue, values) {
     const mode = inputs[`${venue}.entry_mode`].get();
     sections.perp.forEach((n) => n.classList.toggle("unused", mode === "spot"));
     sections.spot.forEach((n) => n.classList.toggle("unused", mode === "futures"));
-    for (const side of ["fut", "spot"]) {  // the wait means something with GTC only
-      const ioc = inputs[`${venue}.${side}_tif`].get() === "ioc";
-      rows[`${side}_order_ttl_s`].forEach((n) => n.classList.toggle("unused", ioc || (side === "fut" ? mode === "spot" : mode === "futures")));
+    for (const side of ["fut", "spot"]) {  // the wait and the chase mean something with GTC only
+      const off = inputs[`${venue}.${side}_tif`].get() === "ioc" || (side === "fut" ? mode === "spot" : mode === "futures");
+      for (const f of [`${side}_order_ttl_s`, `${side}_chase_pct`]) (rows[f] || []).forEach((n) => n.classList.toggle("unused", off));
     }
     const lev = inputs[`${venue}.leverage`].get(), margin = inputs[`${venue}.fut_margin_pct`].get();
     calc.textContent = lev && margin ? `Позиция до ${+(lev * margin / 100).toFixed(2)}× баланса, в пределах лимита биржи` : "";
@@ -336,6 +342,10 @@ function venueCard(venue, values) {
   for (const [id, title, where, list] of GROUPS) {
     const nodes = [el("div", "group", title)];
     for (const r of list) {
+      if (ONLY[r[0]] && !ONLY[r[0]].includes(venue)) {  // not on this exchange: its value goes back untouched
+        inputs[`${venue}.${r[0]}`] = {get: () => at[r[0]] == null ? null : at[r[0]], check: () => null, node: null, label: r[1]};
+        continue;
+      }
       const spec = r[0] === "fut_price_cap_pct" && CAP_HINT[venue] ? [r[0], r[1], CAP_HINT[venue], ...r.slice(3)] : r;
       const made = Array.isArray(r[3]) ? flipRow(`${venue}.${r[0]}`, spec, at[r[0]], refresh) : numberRow(`${venue}.${r[0]}`, spec, at[r[0]], refresh);
       inputs[`${venue}.${r[0]}`].sub = where;
