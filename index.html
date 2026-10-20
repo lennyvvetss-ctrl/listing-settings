@@ -85,14 +85,15 @@
   .lrow input[type=text] { width: 100%; padding: 5px 6px; }
   .lrow input:disabled { opacity: .35; }
   .lhead { align-items: end; padding-top: 8px; padding-bottom: 0; }
-  .lhead span { font-size: 10.5px; line-height: 1.2; color: var(--hint); text-align: right; }
-  .lhead span:first-child { text-align: left; }
-  .lhead small { display: block; opacity: .8; }
+  /* a title a line, on one level; a phone narrower than 360 px drops the units (", %") so that they fit */
+  .lhead > span { display: flex; justify-content: flex-end; font-size: 10px; letter-spacing: -.1px; line-height: 1.2; color: var(--hint);
+                  white-space: nowrap; }
+  .lhead > span:first-child { justify-content: flex-start; }
+  .lhead > span.mid { justify-content: center; }
   .lcap { font-size: 13.5px; white-space: nowrap; }
   .lcalc { color: var(--hint); font-size: 11.5px; padding: 1px 14px 7px; text-align: right; }
   .lcalc.bad { color: var(--danger); }
   .lcalc + .lrow::before { content: ""; position: absolute; left: 14px; right: 0; top: 0; border-top: 1px solid var(--line); }
-  @media (max-width: 360px) { .lrow { grid-template-columns: minmax(0, 1fr) repeat(4, 46px); gap: 4px; } }
   .unused { pointer-events: none; }
 
   input[type=text] {
@@ -170,6 +171,24 @@
   .empty b { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
   .away { padding: 2px 14px 14px; color: var(--hint); font-size: 12.5px; line-height: 1.45; }
   pre { background: var(--card); border-radius: 12px; padding: 12px; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+  /* a phone narrower than 360 px (iPhone SE of 2016, some small Androids): everything a little tighter, so that
+     each line stays one */
+  @media (max-width: 359px) {
+    body { padding: 8px 8px 20px; }
+    .row { padding: 8px 12px; gap: 8px; }
+    .row::before, .acts::before, .lcalc + .lrow::before { left: 12px; }
+    .row label, .row .label { font-size: 13px; }
+    .row small, .calc, .err, .lcalc, .facts small { font-size: 10.5px; }
+    .group, .lnote, .calc, .err, .lcalc, .facts, .acts, .head { padding-left: 12px; padding-right: 12px; }
+    input[type=text], .flip { width: 62px; }
+    .ctl .unit { min-width: 24px; font-size: 11px; }
+    .seg button { padding: 5px 7px; min-width: 36px; font-size: 11.5px; }
+    .sub { margin: 0 12px 4px; }
+    .sub button { font-size: 11px; }
+    .tab { font-size: 12.5px; }
+    .lrow { grid-template-columns: minmax(0, 1fr) repeat(4, 46px); gap: 4px; padding-left: 12px; padding-right: 12px; }
+    .lhead .u { display: none; }
+  }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -191,64 +210,60 @@
 <script>
 "use strict";
 // The order of the fields is the bot's (bot/tuning.py: COMMON_FIELDS, VENUE_FIELDS): both sides must agree.
-const VERSION = 7;
-const COMMON_FIELDS = ["max_mcap_usd", "fill_check_s"];
+const VERSION = 8;
+const COMMON_FIELDS = ["fut_max_mcap_usd", "spot_max_mcap_usd"];
 const POSITION_FIELDS = ["key", "size", "entry", "mark", "tp", "sl", "limit", "qty"];
-const VENUE_FIELDS = ["enabled", "entry_mode", "leverage", "fut_margin_pct", "fut_price_cap_pct", "fut_tif", "fut_order_ttl_s",
-                      "fut_chase_pct", "fut_ceil_30m", "fut_ceil_60m", "fut_ceil_90m", "fut_ceil_120m", "max_notional_usd",
-                      "spot_pct", "spot_price_cap_pct", "spot_tif", "spot_order_ttl_s", "spot_chase_pct", "spot_ceil_25m",
-                      "spot_ceil_50m", "tp_pct", "fut_tp_30m", "fut_tp_60m", "fut_tp_90m", "fut_tp_120m", "spot_tp_25m",
+const VENUE_FIELDS = ["enabled", "entry_mode", "leverage", "fut_margin_pct", "fut_tif", "fut_order_ttl_s",
+                      "fut_ceil_30m", "fut_ceil_60m", "fut_ceil_90m", "fut_ceil_120m", "max_notional_usd",
+                      "spot_pct", "spot_tif", "spot_order_ttl_s", "spot_ceil_25m",
+                      "spot_ceil_50m", "fut_tp_30m", "fut_tp_60m", "fut_tp_90m", "fut_tp_120m", "spot_tp_25m",
                       "spot_tp_50m", "sl_pct", "sl_delay_s", "max_hold_min"];
 // a row shown on these exchanges only; elsewhere its value goes back as it came
-const ONLY = {spot_chase_pct: ["binance"]};
+const ONLY = {};
 const TITLES = {gate: "Gate", binance: "Binance"};
 // a choice: [value, button, what it means]
-const ENTRY = [["auto", "Авто", "Авто: перп, а если его нет — spot"], ["futures", "Перп", "Только перп"],
+const ENTRY = [["auto", "Авто", "Авто: перп, а если его нет или вход не задан — spot"], ["futures", "Перп", "Только перп"],
                ["spot", "Spot", "Только spot"], ["both", "Оба", "И перп, и spot сразу"]];
 const TIF = [["gtc", "GTC", "ждёт в стакане, потом снимается"], ["ioc", "IOC", "сразу отменяется"]];
 // a number: [field, label, hint, unit, lowest, highest, whole number, may be empty, shown as value / scale]
 const COMMON_ROWS = [
-  ["max_mcap_usd", "Потолок каппы", "Circulating cap выше — не входим", "млн $", 1, 1000000, false, false, 1e6],
-  ["fill_check_s", "Снять недолитое через", "Остаток снимается; пусто — нет", "с", 0.1, 60, false, true],
+  // no higher than the last bracket of «Конфиги»: no entry is set above it
+  ["fut_max_mcap_usd", "Потолок каппы перпа", "Выше не входим (макс. $120M)", "млн $", 1, 120, false, false, 1e6],
+  ["spot_max_mcap_usd", "Потолок каппы spot", "Выше не входим (макс. $50M)", "млн $", 1, 50, false, false, 1e6],
 ];
-const CAP_HINT = {binance: "Не выше края коридора Binance"};
 // what is set by market cap, a bracket a row (bot/tuning.py): a take-profit four numbers (LADDER), the price
 // ceilings two (CEILING_PARTS): [what it is, lowest, highest]; the brackets as bot/config.py has them
 const LADDER = [["TP", 0.1, 1000], ["стоит", 0, 600], ["−1% каждые", 0.1, 600], ["не ниже", 0, 1000]];
 const CEILING_PARTS = [["потолок входа", 0.1, 50], ["догонять до", 0.1, 300]];
 const CAP_TIERS = [["30m", "до $30M"], ["60m", "$30–60M"], ["90m", "$60–90M"], ["120m", "$90–120M"]];
 const SPOT_CAP_TIERS = [["25m", "до $25M"], ["50m", "$25–50M"]];
-const CEILING_NOTE = "К цене до листинга, по каппе монеты в момент входа. «Вход» — лимит ордера на вход, «Догон» — до куда " +
-  "остаток ордера идёт за рынком (только GTC). Пустая клетка, пустая строка или каппа выше — значение из Open.";
+const CEILING_NOTE = "Вход по каппе монеты в момент входа, к цене до листинга. «Вход» — лимит ордера на вход (у перпа не выше " +
+  "края коридора биржи), «Догон» — до куда остаток ордера идёт за рынком (только GTC). Пустой «Вход» — этим рынком в этот " +
+  "диапазон не входим (в «Авто» тогда идёт spot); пустой «Догон» — без догона. Потолки каппы — во вкладке «Общее».";
 const TP_STEP = 1;  // a take-profit comes down by this much at a time (bot/strategy.py: TP_STEP_PCT)
 const TP_NOTES = {
   fut: "От средней цены входа, по каппе монеты в момент входа. TP встаёт на бирже с первым наливом, стоит «Стоит» секунд, " +
        "потом бот опускает его на 1% каждые N секунд, но не ниже «Не ниже». Пустое «каждые» — не опускается. " +
-       "Пустая строка или каппа выше $120M — общий TP из Close.",
+       "Пустая строка — без TP: выход по SL или из приложения.",
   spot: "От средней цены входа, по каппе монеты в момент входа. TP на spot ведёт бот: продаёт, когда bid дошёл до уровня. " +
         "Время считается с конца покупки; дальше как у перпа: стоит, потом −1% каждые N секунд, не ниже «Не ниже». " +
-        "Пустая строка или каппа выше $50M — общий TP из Close.",
+        "Пустая строка — без TP: выход по SL или из приложения.",
 };
 // a group: [id, title, the sub-tab it is on, rows, a line under the title]
 const GROUPS = [
   ["perp", "Перп", "open", [
     ["leverage", "Плечо", "Cross; или максимум контракта", "x", 1, 50, true, false],
     ["fut_margin_pct", "Маржа", "Доля баланса биржи", "%", 0.1, 100, false, false],
-    ["fut_price_cap_pct", "Потолок цены", "К цене до листинга; по каппе — «Потолки»", "%", 0.1, 50, false, false],
     ["fut_tif", "Остаток ордера", "", TIF],
     ["fut_order_ttl_s", "Ждёт в стакане", "", "с", 0, 60, false, false],
-    ["fut_chase_pct", "Догонять до", "К цене до листинга; пусто — нет", "%", 0.1, 300, false, true],
     ["max_notional_usd", "Макс. позиция", "0 — без ограничения", "$", 0, 10000000, false, false],
   ]],
   ["spot", "Spot", "open", [
-    ["spot_pct", "Доля баланса", "Пусто — spot не используем", "%", 0.1, 100, false, true],
-    ["spot_price_cap_pct", "Потолок цены", "К цене до листинга; по каппе — «Потолки»", "%", 0.1, 50, false, false],
+    ["spot_pct", "Доля баланса", "Нужна для входа через spot", "%", 0.1, 100, false, true],
     ["spot_tif", "Остаток ордера", "", TIF],
     ["spot_order_ttl_s", "Ждёт в стакане", "", "с", 0, 60, false, false],
-    ["spot_chase_pct", "Догонять до", "К цене до листинга; пусто — нет", "%", 0.1, 300, false, true],
   ]],
   ["exit", "Выход", "close", [
-    ["tp_pct", "Take-profit", "Общий: если по каппе не задан", "%", 0.1, 1000, false, true],
     ["sl_pct", "Stop-loss", "От средней цены входа", "%", 0.1, 99, false, true],
     ["sl_delay_s", "SL через", "После первого налива", "с", 0, 600, false, false],
     ["max_hold_min", "Держать не дольше", "0 — без ограничения", "мин", 0, 10080, false, false],
@@ -369,8 +384,11 @@ function ladderCheck([pct, , every, floor]) {  // [why a take-profit's numbers d
 function ceilingText(venue, market) {
   return ([cap, chase]) => {  // what a bracket's ceilings come to: "вход +20%, догон до +30%"
     const chases = !(market === "spot" && venue !== "binance");  // Gate spot does not follow the market
-    let out = `вход ${cap == null ? "как в Open" : `+${cap}%`}`;
-    if (chases) out += chase == null ? ", догон как в Open" : cap != null && chase <= cap ? ", без догона: он не выше входа" : `, догон до +${chase}%`;
+    const tif = inputs[`${venue}.${market}_tif`];  // only the rest of a GTC order stands in the book to follow it
+    if (cap == null) return "вход не задан — этим рынком сюда не входим";
+    let out = `вход +${cap}%`;
+    if (chases && tif && tif.get() === "ioc") out += chase == null ? "" : ", без догона: остаток ордера IOC";
+    else if (chases) out += chase == null ? ", без догона" : chase <= cap ? ", без догона: он не выше входа" : `, догон до +${chase}%`;
     if (market === "spot" && venue === "gate" && cap > 25) out += "; выше +25% Gate может не принять (лимит пары от последней цены)";
     return out;
   };
@@ -382,9 +400,9 @@ function bracketRows(venue, at, o) {
   // row left empty), label, sub, off (the columns that mean nothing here: their value goes back as it came)}
   const cols = `lrow${o.parts.length === 2 ? " cols2" : ""}`, off = o.off || [];
   const head = el("div", `${cols} lhead`);
-  for (const [text, unit] of [["Каппа", ""], ...o.heads]) {
-    const cell = el("span", null, text);
-    if (unit) cell.append(el("small", null, unit));
+  for (const [text, unit, mid] of [["Каппа", ""], ...o.heads]) {  // one line each: "TP, %"
+    const cell = el("span", mid ? "mid" : null, text);
+    if (unit) cell.append(el("span", "u", `, ${unit}`));
     head.append(cell);
   }
   const nodes = [head];
@@ -451,7 +469,11 @@ function venueCard(venue, values) {
     for (const id of ["spot", "ceilspot", "tpspot"]) sections[id].forEach((n) => n.classList.toggle("unused", mode === "futures"));
     for (const side of ["fut", "spot"]) {  // the wait and the chase mean something with GTC only
       const off = inputs[`${venue}.${side}_tif`].get() === "ioc" || (side === "fut" ? mode === "spot" : mode === "futures");
-      for (const f of [`${side}_order_ttl_s`, `${side}_chase_pct`]) (rows[f] || []).forEach((n) => n.classList.toggle("unused", off));
+      (rows[`${side}_order_ttl_s`] || []).forEach((n) => n.classList.toggle("unused", off));
+      for (const [, tier] of side === "fut" ? CAP_TIERS : SPOT_CAP_TIERS) {  // the line of a bracket says whether it chases
+        const row = inputs[`${venue}.${side}_ceil_${tier}`];
+        if (row) row.check();
+      }
     }
     const lev = inputs[`${venue}.leverage`].get(), margin = inputs[`${venue}.fut_margin_pct`].get();
     calc.textContent = lev && margin ? `Позиция до ${+(lev * margin / 100).toFixed(2)}× баланса, в пределах лимита биржи` : "";
@@ -467,7 +489,7 @@ function venueCard(venue, values) {
         inputs[`${venue}.${r[0]}`] = {get: () => at[r[0]] == null ? null : at[r[0]], check: () => null, node: null, label: r[1]};
         continue;
       }
-      const spec = r[0] === "fut_price_cap_pct" && CAP_HINT[venue] ? [r[0], r[1], CAP_HINT[venue], ...r.slice(3)] : r;
+      const spec = r;
       const made = Array.isArray(r[3]) ? flipRow(`${venue}.${r[0]}`, spec, at[r[0]], refresh) : numberRow(`${venue}.${r[0]}`, spec, at[r[0]], refresh);
       inputs[`${venue}.${r[0]}`].sub = where;
       rows[r[0]] = made;
@@ -482,23 +504,23 @@ function venueCard(venue, values) {
     const gate = market === "spot" && venue !== "binance";
     sections[`ceil${market}`] = [el("div", "group", gate ? `${title} · Gate spot не догоняет` : title),
       ...bracketRows(venue, at, {name: `${market}_ceil`, tiers, parts: CEILING_PARTS, heads: [["Вход", "%"], ["Догон", "%"]],
-                                 text: ceilingText(venue, market), empty: "пусто — потолки из Open",
-                                 label: `потолки ${market === "fut" ? "перпа" : "spot"}`, sub: "ceil", off: gate ? [1] : []})];
+                                 text: ceilingText(venue, market), empty: "пусто — этим рынком сюда не входим",
+                                 label: `вход ${market === "fut" ? "перпа" : "spot"}`, sub: "ceil", off: gate ? [1] : []})];
     bodies.ceil.append(...sections[`ceil${market}`]);
   }
   for (const [market, sub] of [["fut", "tpfut"], ["spot", "tpspot"]]) {
     sections[sub] = [el("div", "lnote", TP_NOTES[market]),
       ...bracketRows(venue, at, {name: `${market}_tp`, tiers: market === "fut" ? CAP_TIERS : SPOT_CAP_TIERS, parts: LADDER,
                                  check: ladderCheck, text: ladderText,
-                                 heads: [["TP", "%"], ["Стоит", "с"], ["−1% каждые", "с"], ["Не ниже", "%"]],
-                                 empty: "пусто — общий TP из Close", label: `TP ${market === "fut" ? "перпа" : "spot"}`, sub})];
+                                 heads: [["TP", "%"], ["Стоит", "с"], ["−1%/с", "", true], ["Не ниже", "%"]],
+                                 empty: "пусто — без TP", label: `TP ${market === "fut" ? "перпа" : "spot"}`, sub})];
     bodies[sub].append(...sections[sub]);
   }
-  // Open: how it enters; Потолки: its price ceilings by the token's market cap; Close: how it gets out; TP перп /
+  // Open: how it enters; Конфиги: its price ceilings by the token's market cap; Close: how it gets out; TP перп /
   // TP spot: the take-profits by the token's market cap. One at a time
   const subs = el("div", "sub"), pick = {};
   subs.setAttribute("role", "tablist");
-  for (const [id, title] of [["open", "Open"], ["ceil", "Потолки"], ["close", "Close"], ["tpfut", "TP перп"], ["tpspot", "TP spot"]]) {
+  for (const [id, title] of [["open", "Open"], ["ceil", "Конфиги"], ["close", "Close"], ["tpfut", "TP перп"], ["tpspot", "TP spot"]]) {
     pick[id] = el("button", null, title);
     pick[id].type = "button"; pick[id].setAttribute("role", "tab");
     pick[id].addEventListener("click", () => card.showSub(id));
