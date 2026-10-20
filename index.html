@@ -76,6 +76,23 @@
   .calc { color: var(--hint); font-size: 11.5px; padding: 0 14px 8px; margin-top: -4px; }
   .err { color: var(--danger); font-size: 11.5px; padding: 0 14px 8px; margin-top: -4px; text-align: right; }
   .off .body, .unused { opacity: .42; }
+
+  /* the take-profit by market cap: a table, a bracket a row */
+  .lnote { color: var(--hint); font-size: 11.5px; line-height: 1.4; padding: 10px 14px 2px; }
+  .lrow { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, 54px); gap: 6px;
+          align-items: center; padding: 7px 14px 2px; }
+  .lrow.cols2 { grid-template-columns: minmax(0, 1fr) repeat(2, 84px); }
+  .lrow input[type=text] { width: 100%; padding: 5px 6px; }
+  .lrow input:disabled { opacity: .35; }
+  .lhead { align-items: end; padding-top: 8px; padding-bottom: 0; }
+  .lhead span { font-size: 10.5px; line-height: 1.2; color: var(--hint); text-align: right; }
+  .lhead span:first-child { text-align: left; }
+  .lhead small { display: block; opacity: .8; }
+  .lcap { font-size: 13.5px; white-space: nowrap; }
+  .lcalc { color: var(--hint); font-size: 11.5px; padding: 1px 14px 7px; text-align: right; }
+  .lcalc.bad { color: var(--danger); }
+  .lcalc + .lrow::before { content: ""; position: absolute; left: 14px; right: 0; top: 0; border-top: 1px solid var(--line); }
+  @media (max-width: 360px) { .lrow { grid-template-columns: minmax(0, 1fr) repeat(4, 46px); gap: 4px; } }
   .unused { pointer-events: none; }
 
   input[type=text] {
@@ -133,6 +150,11 @@
   .facts .wide { grid-column: 1 / -1; }
   .facts small { display: block; color: var(--hint); font-size: 11px; }
   .facts b { font-size: 13.5px; font-weight: 550; font-variant-numeric: tabular-nums; word-break: break-all; }
+  .facts b.up { color: var(--up); }
+  .facts b.down { color: var(--danger); }
+  .live { display: inline-flex; align-items: center; gap: 4px; }
+  .live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--hint); opacity: .6; }
+  .live.on::before { background: var(--up); opacity: 1; }
   .acts { position: relative; padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
   .acts::before { content: ""; position: absolute; left: 14px; right: 0; top: 0; border-top: 1px solid var(--line); }
   .acts .line { display: flex; align-items: center; gap: 8px; }
@@ -169,13 +191,14 @@
 <script>
 "use strict";
 // The order of the fields is the bot's (bot/tuning.py: COMMON_FIELDS, VENUE_FIELDS): both sides must agree.
-const VERSION = 6;
+const VERSION = 7;
 const COMMON_FIELDS = ["max_mcap_usd", "fill_check_s"];
-const POSITION_FIELDS = ["key", "size", "entry", "mark", "tp", "sl", "limit"];
+const POSITION_FIELDS = ["key", "size", "entry", "mark", "tp", "sl", "limit", "qty"];
 const VENUE_FIELDS = ["enabled", "entry_mode", "leverage", "fut_margin_pct", "fut_price_cap_pct", "fut_tif", "fut_order_ttl_s",
-                      "fut_chase_pct", "max_notional_usd", "spot_pct", "spot_price_cap_pct", "spot_tif", "spot_order_ttl_s",
-                      "spot_chase_pct", "tp_pct", "tp_pct_10m", "tp_pct_30m", "tp_pct_90m", "tp_pct_120m", "sl_pct", "sl_delay_s",
-                      "max_hold_min"];
+                      "fut_chase_pct", "fut_ceil_30m", "fut_ceil_60m", "fut_ceil_90m", "fut_ceil_120m", "max_notional_usd",
+                      "spot_pct", "spot_price_cap_pct", "spot_tif", "spot_order_ttl_s", "spot_chase_pct", "spot_ceil_25m",
+                      "spot_ceil_50m", "tp_pct", "fut_tp_30m", "fut_tp_60m", "fut_tp_90m", "fut_tp_120m", "spot_tp_25m",
+                      "spot_tp_50m", "sl_pct", "sl_delay_s", "max_hold_min"];
 // a row shown on these exchanges only; elsewhere its value goes back as it came
 const ONLY = {spot_chase_pct: ["binance"]};
 const TITLES = {gate: "Gate", binance: "Binance"};
@@ -189,12 +212,29 @@ const COMMON_ROWS = [
   ["fill_check_s", "Снять недолитое через", "Остаток снимается; пусто — нет", "с", 0.1, 60, false, true],
 ];
 const CAP_HINT = {binance: "Не выше края коридора Binance"};
+// what is set by market cap, a bracket a row (bot/tuning.py): a take-profit four numbers (LADDER), the price
+// ceilings two (CEILING_PARTS): [what it is, lowest, highest]; the brackets as bot/config.py has them
+const LADDER = [["TP", 0.1, 1000], ["стоит", 0, 600], ["−1% каждые", 0.1, 600], ["не ниже", 0, 1000]];
+const CEILING_PARTS = [["потолок входа", 0.1, 50], ["догонять до", 0.1, 300]];
+const CAP_TIERS = [["30m", "до $30M"], ["60m", "$30–60M"], ["90m", "$60–90M"], ["120m", "$90–120M"]];
+const SPOT_CAP_TIERS = [["25m", "до $25M"], ["50m", "$25–50M"]];
+const CEILING_NOTE = "К цене до листинга, по каппе монеты в момент входа. «Вход» — лимит ордера на вход, «Догон» — до куда " +
+  "остаток ордера идёт за рынком (только GTC). Пустая клетка, пустая строка или каппа выше — значение из Open.";
+const TP_STEP = 1;  // a take-profit comes down by this much at a time (bot/strategy.py: TP_STEP_PCT)
+const TP_NOTES = {
+  fut: "От средней цены входа, по каппе монеты в момент входа. TP встаёт на бирже с первым наливом, стоит «Стоит» секунд, " +
+       "потом бот опускает его на 1% каждые N секунд, но не ниже «Не ниже». Пустое «каждые» — не опускается. " +
+       "Пустая строка или каппа выше $120M — общий TP из Close.",
+  spot: "От средней цены входа, по каппе монеты в момент входа. TP на spot ведёт бот: продаёт, когда bid дошёл до уровня. " +
+        "Время считается с конца покупки; дальше как у перпа: стоит, потом −1% каждые N секунд, не ниже «Не ниже». " +
+        "Пустая строка или каппа выше $50M — общий TP из Close.",
+};
 // a group: [id, title, the sub-tab it is on, rows, a line under the title]
 const GROUPS = [
   ["perp", "Перп", "open", [
     ["leverage", "Плечо", "Cross; или максимум контракта", "x", 1, 50, true, false],
     ["fut_margin_pct", "Маржа", "Доля баланса биржи", "%", 0.1, 100, false, false],
-    ["fut_price_cap_pct", "Потолок цены", "К цене до листинга", "%", 0.1, 50, false, false],
+    ["fut_price_cap_pct", "Потолок цены", "К цене до листинга; по каппе — «Потолки»", "%", 0.1, 50, false, false],
     ["fut_tif", "Остаток ордера", "", TIF],
     ["fut_order_ttl_s", "Ждёт в стакане", "", "с", 0, 60, false, false],
     ["fut_chase_pct", "Догонять до", "К цене до листинга; пусто — нет", "%", 0.1, 300, false, true],
@@ -202,23 +242,17 @@ const GROUPS = [
   ]],
   ["spot", "Spot", "open", [
     ["spot_pct", "Доля баланса", "Пусто — spot не используем", "%", 0.1, 100, false, true],
-    ["spot_price_cap_pct", "Потолок цены", "К цене до листинга", "%", 0.1, 50, false, false],
+    ["spot_price_cap_pct", "Потолок цены", "К цене до листинга; по каппе — «Потолки»", "%", 0.1, 50, false, false],
     ["spot_tif", "Остаток ордера", "", TIF],
     ["spot_order_ttl_s", "Ждёт в стакане", "", "с", 0, 60, false, false],
     ["spot_chase_pct", "Догонять до", "К цене до листинга; пусто — нет", "%", 0.1, 300, false, true],
   ]],
   ["exit", "Выход", "close", [
-    ["tp_pct", "Take-profit", "От средней цены входа", "%", 0.1, 1000, false, true],
+    ["tp_pct", "Take-profit", "Общий: если по каппе не задан", "%", 0.1, 1000, false, true],
     ["sl_pct", "Stop-loss", "От средней цены входа", "%", 0.1, 99, false, true],
     ["sl_delay_s", "SL через", "После первого налива", "с", 0, 600, false, false],
     ["max_hold_min", "Держать не дольше", "0 — без ограничения", "мин", 0, 10080, false, false],
   ]],
-  ["tpcap", "Take-profit по каппе", "tpcap", [
-    ["tp_pct_10m", "Каппа до $10M", "Пусто — общий TP", "%", 0.1, 1000, false, true],
-    ["tp_pct_30m", "Каппа $10–30M", "Пусто — общий TP", "%", 0.1, 1000, false, true],
-    ["tp_pct_90m", "Каппа $30–90M", "Пусто — общий TP", "%", 0.1, 1000, false, true],
-    ["tp_pct_120m", "Каппа $90–120M", "Пусто — общий TP", "%", 0.1, 1000, false, true],
-  ], "От средней цены входа, по каппе монеты в момент входа. Выше $120M — общий TP из Close."],
 ];
 
 const tg = window.Telegram && window.Telegram.WebApp;
@@ -318,10 +352,90 @@ function flipRow(key, [name, label, hint, options], value, onChange) {
   return [row];
 }
 
+function ladderText([pct, hold, every, floor]) {
+  // what a filled-in bracket comes to, in a short line: "+25% → +3% через 14.5 с после входа"
+  if (every == null || floor == null || floor >= pct) return `+${pct}% от входа, не опускается`;
+  const h = hold || 0, end = h + (Math.ceil((pct - floor) / TP_STEP - 1e-9) - 1) * every;
+  return `+${pct}% → +${floor}% через ${+end.toFixed(2)} с после входа`;
+}
+
+function ladderCheck([pct, , every, floor]) {  // [why a take-profit's numbers do not go together, the field at fault]
+  if (pct == null) return ["сам TP не задан", 0];
+  if (every != null && floor == null) return ["TP опускается — задай «не ниже»", 3];
+  if (every != null && floor >= pct) return ["«не ниже» должно быть меньше TP", 3];
+  return null;
+}
+
+function ceilingText(venue, market) {
+  return ([cap, chase]) => {  // what a bracket's ceilings come to: "вход +20%, догон до +30%"
+    const chases = !(market === "spot" && venue !== "binance");  // Gate spot does not follow the market
+    let out = `вход ${cap == null ? "как в Open" : `+${cap}%`}`;
+    if (chases) out += chase == null ? ", догон как в Open" : cap != null && chase <= cap ? ", без догона: он не выше входа" : `, догон до +${chase}%`;
+    if (market === "spot" && venue === "gate" && cap > 25) out += "; выше +25% Gate может не принять (лимит пары от последней цены)";
+    return out;
+  };
+}
+
+function bracketRows(venue, at, o) {
+  // a setting by market cap as a table, a bracket a row. o: {name (the fields' prefix), tiers, parts, heads (the
+  // columns: [title, unit]), check(numbers) -> [why, the field at fault] | null, text(numbers), empty (the line of a
+  // row left empty), label, sub, off (the columns that mean nothing here: their value goes back as it came)}
+  const cols = `lrow${o.parts.length === 2 ? " cols2" : ""}`, off = o.off || [];
+  const head = el("div", `${cols} lhead`);
+  for (const [text, unit] of [["Каппа", ""], ...o.heads]) {
+    const cell = el("span", null, text);
+    if (unit) cell.append(el("small", null, unit));
+    head.append(cell);
+  }
+  const nodes = [head];
+  for (const [tier, label] of o.tiers) {
+    const name = `${o.name}_${tier}`, value = at[name] || o.parts.map(() => null);
+    const row = el("div", cols), calc = el("div", "lcalc"), boxes = [];
+    row.append(el("span", "lcap", label));
+    o.parts.forEach(([part], i) => {
+      const inp = el("input");
+      inp.type = "text"; inp.inputMode = "decimal"; inp.autocomplete = "off"; inp.placeholder = "—";
+      inp.value = value[i] == null || off.includes(i) ? "" : String(+Number(value[i]).toFixed(6));
+      inp.disabled = off.includes(i);
+      inp.setAttribute("aria-label", `${label}: ${part}`);
+      row.append(inp);
+      boxes.push(inp);
+    });
+    const parse = () => {  // [the numbers or null, why not, the field at fault]
+      const got = [];
+      for (let i = 0; i < o.parts.length; i++) {
+        if (off.includes(i)) { got.push(value[i] == null ? null : value[i]); continue; }
+        const raw = boxes[i].value.trim().replace(",", ".").replace(/\s+/g, ""), [part, lo, hi] = o.parts[i];
+        if (raw === "") { got.push(null); continue; }
+        const x = Number(raw);
+        if (!isFinite(x)) return [null, `${part}: нужно число`, i];
+        if (x < lo || x > hi) return [null, `${part}: от ${lo} до ${hi}`, i];
+        got.push(x);
+      }
+      if (got.every((x) => x == null)) return [null, null, -1];
+      const bad = o.check ? o.check(got) : null;
+      return bad ? [null, bad[0], bad[1]] : [got, null, -1];
+    };
+    const check = () => {
+      const [got, why, bad] = parse();
+      boxes.forEach((b, i) => b.classList.toggle("bad", i === bad));
+      calc.classList.toggle("bad", !!why);
+      calc.textContent = why || (got ? o.text(got) : o.empty);
+      return why;
+    };
+    for (const b of boxes) b.addEventListener("input", () => { touched(); check(); });
+    inputs[`${venue}.${name}`] = {get: () => parse()[0], check, node: boxes[0], label: `${o.label} ${label}`, sub: o.sub};
+    check();
+    nodes.push(row, calc);
+  }
+  return nodes;
+}
+
 function venueCard(venue, values) {
   const at = Object.fromEntries(VENUE_FIELDS.map((f, i) => [f, values[i]]));
   const card = el("section", "card"), head = el("div", "head");
-  const bodies = {open: el("div", "body"), close: el("div", "body"), tpcap: el("div", "body")};
+  const bodies = {open: el("div", "body"), ceil: el("div", "body"), close: el("div", "body"), tpfut: el("div", "body"),
+                  tpspot: el("div", "body")};
   const state = el("span", "state"), sw = el("label", "switch"), box = el("input");
   box.type = "checkbox"; box.checked = !!at.enabled; box.setAttribute("aria-label", `Торговать на ${TITLES[venue] || venue}`);
   sw.append(box, el("span"));
@@ -333,8 +447,8 @@ function venueCard(venue, values) {
     card.classList.toggle("off", !box.checked);
     state.textContent = box.checked ? "торгуем" : "выключена";
     const mode = inputs[`${venue}.entry_mode`].get();
-    sections.perp.forEach((n) => n.classList.toggle("unused", mode === "spot"));
-    sections.spot.forEach((n) => n.classList.toggle("unused", mode === "futures"));
+    for (const id of ["perp", "ceilfut", "tpfut"]) sections[id].forEach((n) => n.classList.toggle("unused", mode === "spot"));
+    for (const id of ["spot", "ceilspot", "tpspot"]) sections[id].forEach((n) => n.classList.toggle("unused", mode === "futures"));
     for (const side of ["fut", "spot"]) {  // the wait and the chase mean something with GTC only
       const off = inputs[`${venue}.${side}_tif`].get() === "ioc" || (side === "fut" ? mode === "spot" : mode === "futures");
       for (const f of [`${side}_order_ttl_s`, `${side}_chase_pct`]) (rows[f] || []).forEach((n) => n.classList.toggle("unused", off));
@@ -363,10 +477,28 @@ function venueCard(venue, values) {
     sections[id] = nodes;
     bodies[where].append(...nodes);
   }
-  // Open: how it enters; Close: how it gets out; TP по каппе: the take-profit by the token's market cap. One at a time
+  bodies.ceil.append(el("div", "lnote", CEILING_NOTE));
+  for (const [market, title, tiers] of [["fut", "Перп", CAP_TIERS], ["spot", "Spot", SPOT_CAP_TIERS]]) {
+    const gate = market === "spot" && venue !== "binance";
+    sections[`ceil${market}`] = [el("div", "group", gate ? `${title} · Gate spot не догоняет` : title),
+      ...bracketRows(venue, at, {name: `${market}_ceil`, tiers, parts: CEILING_PARTS, heads: [["Вход", "%"], ["Догон", "%"]],
+                                 text: ceilingText(venue, market), empty: "пусто — потолки из Open",
+                                 label: `потолки ${market === "fut" ? "перпа" : "spot"}`, sub: "ceil", off: gate ? [1] : []})];
+    bodies.ceil.append(...sections[`ceil${market}`]);
+  }
+  for (const [market, sub] of [["fut", "tpfut"], ["spot", "tpspot"]]) {
+    sections[sub] = [el("div", "lnote", TP_NOTES[market]),
+      ...bracketRows(venue, at, {name: `${market}_tp`, tiers: market === "fut" ? CAP_TIERS : SPOT_CAP_TIERS, parts: LADDER,
+                                 check: ladderCheck, text: ladderText,
+                                 heads: [["TP", "%"], ["Стоит", "с"], ["−1% каждые", "с"], ["Не ниже", "%"]],
+                                 empty: "пусто — общий TP из Close", label: `TP ${market === "fut" ? "перпа" : "spot"}`, sub})];
+    bodies[sub].append(...sections[sub]);
+  }
+  // Open: how it enters; Потолки: its price ceilings by the token's market cap; Close: how it gets out; TP перп /
+  // TP spot: the take-profits by the token's market cap. One at a time
   const subs = el("div", "sub"), pick = {};
   subs.setAttribute("role", "tablist");
-  for (const [id, title] of [["open", "Open"], ["close", "Close"], ["tpcap", "TP по каппе"]]) {
+  for (const [id, title] of [["open", "Open"], ["ceil", "Потолки"], ["close", "Close"], ["tpfut", "TP перп"], ["tpspot", "TP spot"]]) {
     pick[id] = el("button", null, title);
     pick[id].type = "button"; pick[id].setAttribute("role", "tab");
     pick[id].addEventListener("click", () => card.showSub(id));
@@ -375,7 +507,7 @@ function venueCard(venue, values) {
   card.showSub = (id) => {
     for (const k of Object.keys(bodies)) { bodies[k].hidden = k !== id; pick[k].setAttribute("aria-selected", String(k === id)); }
   };
-  card.append(head, subs, bodies.open, bodies.close, bodies.tpcap);
+  card.append(head, subs, bodies.open, bodies.ceil, bodies.close, bodies.tpfut, bodies.tpspot);
   card.showSub("open");
   refresh();
   return card;
@@ -417,6 +549,52 @@ function fact(label, value) {
   return d;
 }
 
+// Live prices of the open positions, straight from the exchanges' public streams (no keys, nothing of ours in
+// between): a perpetual's mark price and spot's best bid, what the bot itself watches. A stream that drops comes
+// back by itself; until a price arrives the card shows the one of the bot's last message.
+const sec = () => Math.floor(Date.now() / 1000);
+const STREAMS = {
+  "gate:perp": {url: () => "wss://fx-ws.gateio.ws/v4/ws/usdt", shared: true,
+                hello: (names) => ({time: sec(), channel: "futures.tickers", event: "subscribe", payload: names}),
+                ping: () => ({time: sec(), channel: "futures.ping"}),
+                read: (m) => m.event === "update" && m.channel === "futures.tickers" && Array.isArray(m.result)
+                  ? m.result.map((r) => [r.contract, r.mark_price]) : []},
+  "gate:spot": {url: () => "wss://api.gateio.ws/ws/v4/", shared: true,
+                hello: (names) => ({time: sec(), channel: "spot.book_ticker", event: "subscribe", payload: names}),
+                ping: () => ({time: sec(), channel: "spot.ping"}),
+                read: (m) => m.event === "update" && m.channel === "spot.book_ticker" && m.result ? [[m.result.s, m.result.b]] : []},
+  // Binance: a stream of its own for each symbol; the perpetual's live under /market (bot/venue.py)
+  "binance:perp": {url: (name) => `wss://fstream.binance.com/market/ws/${name.toLowerCase()}@markPrice@1s`,
+                   read: (m) => m.e === "markPriceUpdate" ? [[m.s, m.p]] : []},
+  "binance:spot": {url: (name) => `wss://stream.binance.com:9443/ws/${name.toLowerCase()}@bookTicker`,
+                   read: (m) => m.s && m.b ? [[m.s, m.b]] : []},
+};
+const watchers = {};  // "gate:perp:AAA_USDT" -> [on(price)]
+
+function listen(kind, names) {
+  const spec = STREAMS[kind];
+  if (!spec || !names.length || !("WebSocket" in window)) return;
+  const open = (name) => {  // name: one symbol (Binance) or null: every one of the kind on one connection (Gate)
+    let ws, beat, wait = 1000;
+    const connect = () => {
+      try { ws = new WebSocket(name ? spec.url(name) : spec.url()); } catch (e) { return setTimeout(connect, wait); }
+      ws.onopen = () => {
+        wait = 1000;
+        if (spec.hello) ws.send(JSON.stringify(spec.hello(names)));
+        if (spec.ping) beat = setInterval(() => { try { ws.send(JSON.stringify(spec.ping())); } catch (e) {} }, 20000);
+      };
+      ws.onmessage = (e) => {
+        let m;
+        try { m = JSON.parse(e.data); } catch (err) { return; }
+        for (const [symbol, price] of spec.read(m)) for (const on of watchers[`${kind}:${symbol}`] || []) on(price);
+      };
+      ws.onclose = () => { clearInterval(beat); setTimeout(connect, wait); wait = Math.min(wait * 2, 30000); };
+    };
+    connect();
+  };
+  if (spec.shared) open(null); else names.forEach(open);
+}
+
 function positionCard(values, at) {
   const p = Object.fromEntries(POSITION_FIELDS.map((f, i) => [f, values[i]]));
   const [venue, name, spot] = p.key.split(":");
@@ -425,19 +603,40 @@ function positionCard(values, at) {
   const size = p.size == null ? null : spot ? `${p.size} ${base}` : venue === "gate" ? `${p.size} контр.` : `${p.size} ${base}`;
   const card = el("section", "card"), head = el("div", "head"), h = el("h2", null, title);
   h.append(el("span", "kind", spot ? "spot" : "перп"));
-  const entry = Number(p.entry), mark = Number(p.mark);
+  const entry = Number(p.entry), qty = Number(p.qty);
+  let mark = Number(p.mark);
   const move = el("span", "move");
-  if (entry > 0 && mark > 0) {
-    const pct = (mark / entry - 1) * 100;
-    move.textContent = `${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%`;
-    move.classList.add(pct >= 0 ? "up" : "down");
-  }
   head.append(h, move);
   const facts = el("div", "facts");
-  const last = fact(`${spot ? "Bid" : "Цена"} на ${at}`, p.mark);
-  last.className = "wide";
+  const what = spot ? "Bid" : "Цена (mark)";
+  const last = fact(`${what} на ${at}`, p.mark), pnl = fact("PnL, без комиссий", null);
+  const [lastLabel, lastValue] = last.children, pnlValue = pnl.children[1];
+  const paint = () => {  // the move and the PnL at the price known now
+    if (!(entry > 0 && mark > 0)) return;
+    const pct = (mark / entry - 1) * 100;
+    move.textContent = `${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%`;
+    move.classList.toggle("up", pct >= 0); move.classList.toggle("down", pct < 0);
+    if (qty > 0) {
+      const usd = qty * (mark - entry), digits = Math.abs(usd) < 1 ? 4 : 2;
+      pnlValue.textContent = `${usd >= 0 ? "+" : "−"}$${Math.abs(usd).toFixed(digits)}`;
+      pnlValue.classList.toggle("up", usd >= 0); pnlValue.classList.toggle("down", usd < 0);
+    }
+  };
+  paint();
+  // a live price replaces the one of the bot's message; the dot is green while prices come
+  let seen = 0;
+  const dot = el("span", "live", `${what}, с биржи`);
+  (watchers[`${venue}:${spot ? "spot" : "perp"}:${name}`] ||= []).push((price) => {
+    const x = Number(price);
+    if (!(x > 0)) return;
+    mark = x; seen = Date.now();
+    if (lastLabel.firstChild !== dot) lastLabel.replaceChildren(dot);
+    lastValue.textContent = String(price).includes(".") ? String(price).replace(/0+$/, "").replace(/\.$/, "") : String(price);  // Binance: 0.08167000
+    paint();
+  });
+  setInterval(() => dot.classList.toggle("on", Date.now() - seen < 5000), 1000);
   facts.append(fact("Размер", size), fact("Вход", p.entry), fact(spot ? "TP (ведёт бот)" : "TP", p.tp),
-               fact("SL", p.sl == null && !spot ? "ещё не стоит" : p.sl), last);
+               fact("SL", p.sl == null && !spot ? "ещё не стоит" : p.sl), last, pnl);
   const acts = el("div", "acts");
   const warn = () => dirty ? "\n\nНесохранённые изменения настроек пропадут." : "";
   if (p.limit != null) {
@@ -477,7 +676,14 @@ function ordersPane(positions, when) {
     pane.append(empty);
   }
   for (const values of positions) pane.append(positionCard(values, at));
-  pane.append(el("p", "note", `Данные на ${at} — когда бот последний раз писал в чат. Обновить: «Статус» в чате и открыть заново. После команды приложение закроется, бот ответит в чате.`));
+  const by = {};  // the live prices: the symbols of each stream
+  for (const values of positions) {
+    const [venue, name, spot] = values[0].split(":");
+    (by[`${venue}:${spot ? "spot" : "perp"}`] ||= []).push(name);
+  }
+  for (const [kind, names] of Object.entries(by)) listen(kind, names);
+  pane.append(el("p", "note", `Цена и PnL идут вживую с биржи (у перпа mark, у spot лучший bid). Размер, вход, TP и SL — на ${at}, ` +
+    "когда бот последний раз писал в чат; обновить: «Статус» в чате и открыть заново. После команды приложение закроется, бот ответит в чате."));
   return pane;
 }
 
