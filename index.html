@@ -228,18 +228,20 @@ const TIF = [["gtc", "GTC", "ждёт в стакане, потом снимае
 // a number: [field, label, hint, unit, lowest, highest, whole number, may be empty, shown as value / scale]
 const COMMON_ROWS = [
   // no higher than the last bracket of «Конфиги»: no entry is set above it
-  ["fut_max_mcap_usd", "Потолок каппы перпа", "Выше не входим (макс. $120M)", "млн $", 1, 120, false, false, 1e6],
+  ["fut_max_mcap_usd", "Потолок каппы perp", "Выше не входим (макс. $120M)", "млн $", 1, 120, false, false, 1e6],
   ["spot_max_mcap_usd", "Потолок каппы spot", "Выше не входим (макс. $50M)", "млн $", 1, 50, false, false, 1e6],
 ];
 // what is set by market cap, a bracket a row (bot/tuning.py): a take-profit four numbers (LADDER), the price
 // ceilings two (CEILING_PARTS): [what it is, lowest, highest]; the brackets as bot/config.py has them
 const LADDER = [["TP", 0.1, 1000], ["стоит", 0, 600], ["−1% каждые", 0.1, 600], ["не ниже", 0, 1000]];
-const CEILING_PARTS = [["потолок входа", 0.1, 50], ["догонять до", 0.1, 300]];
+const CEILING_PARTS = [["потолок входа", 0.1, 300], ["догонять до", 0.1, 300]];
 const CAP_TIERS = [["30m", "до $30M"], ["60m", "$30–60M"], ["90m", "$60–90M"], ["120m", "$90–120M"]];
 const SPOT_CAP_TIERS = [["25m", "до $25M"], ["50m", "$25–50M"]];
 const CEILING_NOTE = "Вход по каппе монеты в момент входа, к цене до листинга. «Вход» — лимит ордера на вход (у перпа не выше " +
   "края коридора биржи), «Догон» — до куда остаток ордера идёт за рынком (только GTC). Пустой «Вход» — этим рынком в этот " +
-  "диапазон не входим (в «Авто» тогда идёт spot); пустой «Догон» — без догона. Потолки каппы — во вкладке «Общее».";
+  "диапазон не входим (в «Авто» тогда идёт spot); пустой «Догон» — без догона. Spot Gate берёт покупку не выше предела пары " +
+  "(+25…40% к последней цене): лимит выше бот ставит ровно по пределу, а догон ведёт его дальше вслед за ценой. " +
+  "Потолки каппы — во вкладке «Общее».";
 const TP_STEP = 1;  // a take-profit comes down by this much at a time (bot/strategy.py: TP_STEP_PCT)
 const TP_NOTES = {
   fut: "От средней цены входа, по каппе монеты в момент входа. TP встаёт на бирже с первым наливом, стоит «Стоит» секунд, " +
@@ -383,13 +385,11 @@ function ladderCheck([pct, , every, floor]) {  // [why a take-profit's numbers d
 
 function ceilingText(venue, market) {
   return ([cap, chase]) => {  // what a bracket's ceilings come to: "вход +20%, догон до +30%"
-    const chases = !(market === "spot" && venue !== "binance");  // Gate spot does not follow the market
     const tif = inputs[`${venue}.${market}_tif`];  // only the rest of a GTC order stands in the book to follow it
     if (cap == null) return "вход не задан — этим рынком сюда не входим";
     let out = `вход +${cap}%`;
-    if (chases && tif && tif.get() === "ioc") out += chase == null ? "" : ", без догона: остаток ордера IOC";
-    else if (chases) out += chase == null ? ", без догона" : chase <= cap ? ", без догона: он не выше входа" : `, догон до +${chase}%`;
-    if (market === "spot" && venue === "gate" && cap > 25) out += "; выше +25% Gate может не принять (лимит пары от последней цены)";
+    if (tif && tif.get() === "ioc") out += chase == null ? "" : ", без догона: остаток ордера IOC";
+    else out += chase == null ? ", без догона" : chase <= cap ? ", без догона: он не выше входа" : `, догон до +${chase}%`;
     return out;
   };
 }
@@ -501,11 +501,10 @@ function venueCard(venue, values) {
   }
   bodies.ceil.append(el("div", "lnote", CEILING_NOTE));
   for (const [market, title, tiers] of [["fut", "Перп", CAP_TIERS], ["spot", "Spot", SPOT_CAP_TIERS]]) {
-    const gate = market === "spot" && venue !== "binance";
-    sections[`ceil${market}`] = [el("div", "group", gate ? `${title} · Gate spot не догоняет` : title),
+    sections[`ceil${market}`] = [el("div", "group", title),
       ...bracketRows(venue, at, {name: `${market}_ceil`, tiers, parts: CEILING_PARTS, heads: [["Вход", "%"], ["Догон", "%"]],
                                  text: ceilingText(venue, market), empty: "пусто — этим рынком сюда не входим",
-                                 label: `вход ${market === "fut" ? "перпа" : "spot"}`, sub: "ceil", off: gate ? [1] : []})];
+                                 label: `вход ${market === "fut" ? "перпа" : "spot"}`, sub: "ceil"})];
     bodies.ceil.append(...sections[`ceil${market}`]);
   }
   for (const [market, sub] of [["fut", "tpfut"], ["spot", "tpspot"]]) {
