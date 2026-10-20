@@ -564,6 +564,14 @@ function tell(text) {
   if (inTelegram && tg.showAlert) tg.showAlert(text); else alert(text);
 }
 
+function shortPrice(x) {
+  // a price for the eye: 3 decimals, or as many as 3 digits of it need where it is under 1 (0.0816, 0.00123)
+  const n = Number(x);
+  if (x == null || x === "" || !isFinite(n) || n <= 0) return x;
+  const decimals = Math.max(3, n < 1 ? Math.ceil(-Math.log10(n)) + 2 : 3);
+  return String(+n.toFixed(decimals));
+}
+
 function fact(label, value) {
   const d = el("div");
   d.append(el("small", null, label), el("b", null, value == null || value === "" ? "—" : String(value)));
@@ -630,7 +638,7 @@ function positionCard(values, at) {
   head.append(h, move);
   const facts = el("div", "facts");
   const what = spot ? "Bid" : "Цена (mark)";
-  const last = fact(`${what} на ${at}`, p.mark), pnl = fact("PnL, без комиссий", null);
+  const last = fact(`${what} на ${at}`, shortPrice(p.mark)), pnl = fact("PnL, без комиссий", null);
   const [lastLabel, lastValue] = last.children, pnlValue = pnl.children[1];
   const paint = () => {  // the move and the PnL at the price known now
     if (!(entry > 0 && mark > 0)) return;
@@ -652,23 +660,23 @@ function positionCard(values, at) {
     if (!(x > 0)) return;
     mark = x; seen = Date.now();
     if (lastLabel.firstChild !== dot) lastLabel.replaceChildren(dot);
-    lastValue.textContent = String(price).includes(".") ? String(price).replace(/0+$/, "").replace(/\.$/, "") : String(price);  // Binance: 0.08167000
+    lastValue.textContent = shortPrice(price);
     paint();
   });
   setInterval(() => dot.classList.toggle("on", Date.now() - seen < 5000), 1000);
-  facts.append(fact("Размер", size), fact("Вход", p.entry), fact(spot ? "TP (ведёт бот)" : "TP", p.tp),
-               fact("SL", p.sl == null && !spot ? "ещё не стоит" : p.sl), last, pnl);
+  facts.append(fact("Размер", size), fact("Вход", shortPrice(p.entry)), fact(spot ? "TP (ведёт бот)" : "TP", shortPrice(p.tp)),
+               fact("SL", p.sl == null && !spot ? "ещё не стоит" : shortPrice(p.sl)), last, pnl);
   const acts = el("div", "acts");
   const warn = () => dirty ? "\n\nНесохранённые изменения настроек пропадут." : "";
   if (p.limit != null) {
     const row = el("div", "standing"), off = el("button", "btn small ghost", "Снять");
     off.type = "button";
     off.addEventListener("click", () => ask(`Снять лимитку на закрытие ${title} по ${p.limit}?${warn()}`, () => send({v: VERSION, a: "cancel", k: p.key})));
-    row.append(el("span", null, `Лимитка на закрытие: ${p.limit}`), off);
+    row.append(el("span", null, `Лимитка на закрытие: ${shortPrice(p.limit)}`), off);
     acts.append(row);
   }
   const line = el("div", "line"), price = el("input"), put = el("button", "btn small", p.limit != null ? "Переставить" : "Лимиткой");
-  price.type = "text"; price.inputMode = "decimal"; price.autocomplete = "off"; price.value = p.limit != null ? p.limit : (p.mark || "");
+  price.type = "text"; price.inputMode = "decimal"; price.autocomplete = "off"; price.value = p.limit != null ? shortPrice(p.limit) : (shortPrice(p.mark) || "");
   price.setAttribute("aria-label", `Цена лимитки для ${title}`);
   put.type = "button";
   put.addEventListener("click", () => {
